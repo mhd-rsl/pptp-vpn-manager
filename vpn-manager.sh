@@ -192,7 +192,7 @@ if [[ "$AUTO_START" =~ ^[Yy]$ ]]; then
     
     # Build custom routing logic for split tunnels into the daemon lifecycle
     EXEC_START_POST=""
-    if [ "$ROUTE_MODE" == "2" ] && [ -not -z "$SPLIT_SUBNET" ]; then
+    if [ "$ROUTE_MODE" == "2" ] && [ -n "$SPLIT_SUBNET" ]; then
         EXEC_START_POST="ExecStartPost=/bin/sh -c 'sleep 5 && ip route add $SPLIT_SUBNET dev ppp0'"
     fi
 
