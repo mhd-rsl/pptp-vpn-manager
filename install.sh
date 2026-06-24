@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 set -e
 
@@ -13,8 +12,8 @@ BIN_DIR="/usr/local/bin"
 echo "Installing dependencies..."
 
 if command -v apt >/dev/null 2>&1; then
-    apt update
-    apt install -y pptp-linux ppp curl iproute2 psmisc
+    apt-get update
+    apt-get install -y pptp-linux ppp curl iproute2 psmisc
 elif command -v dnf >/dev/null 2>&1; then
     dnf install -y pptp ppp curl iproute psmisc
 elif command -v yum >/dev/null 2>&1; then
@@ -29,11 +28,10 @@ mkdir -p "$INSTALL_DIR"
 echo "Downloading pptp-manager..."
 
 curl -fsSL \
-https://raw.githubusercontent.com/mhd-rsl/pptp-manager/main/pptp-manager \
--o "$INSTALL_DIR/pptp-manager"
+    https://raw.githubusercontent.com/mhd-rsl/pptp-manager/main/pptp-manager \
+    -o "$INSTALL_DIR/pptp-manager"
 
 chmod +x "$INSTALL_DIR/pptp-manager"
-
 ln -sf "$INSTALL_DIR/pptp-manager" "$BIN_DIR/pptp-manager"
 
 echo ""
@@ -47,5 +45,3 @@ echo "  sudo pptp-manager setup"
 echo "  sudo pptp-manager start officevpn"
 echo "  sudo pptp-manager stop officevpn"
 echo "  sudo pptp-manager status"
-echo ""
-```
