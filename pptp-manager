@@ -1,0 +1,196 @@
+# pptp-manager
+
+```bash
+#!/bin/bash
+set -e
+
+VERSION="1.0.0"
+
+require_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Please run as root or sudo."
+        exit 1
+    fi
+}
+
+setup_vpn() {
+    read -p "Profile name [officevpn]: " PROFILE
+    PROFILE=${PROFILE:-officevpn}
+
+    read -p "VPN Server: " SERVER
+    read -p "Username: " USERNAME
+    read -s -p "Password: " PASSWORD
+    echo
+
+    mkdir -p /etc/ppp/peers
+
+    cat > /etc/ppp/peers/$PROFILE <<EOF
+pty "pptp $SERVER --nolaunchpptp"
+name "$USERNAME"
+remotename $PROFILE
+require-mppe-128
+require-mschap-v2
+refuse-eap
+refuse-pap
+refuse-chap
+refuse-mschap
+persist
+maxfail 0
+holdoff 10
+defaultroute
+replacedefaultroute
+usepeerdns
+EOF
+
+    sed -i "/$USERNAME $PROFILE/d" /etc/ppp/chap-secrets 2>/dev/null || true
+    echo "$USERNAME $PROFILE \"$PASSWORD\" *" >> /etc/ppp/chap-secrets
+    chmod 600 /etc/ppp/chap-secrets
+
+    read -p "Enable autostart? [y/N]: " AUTO
+
+    if [[ "$AUTO" =~ ^[Yy]$ ]]; then
+cat > /etc/systemd/system/pptp-$PROFILE.service <<EOF
+[Unit]
+Description=PPTP VPN $PROFILE
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/pon $PROFILE
+ExecStop=/usr/bin/poff $PROFILE
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+        systemctl daemon-reload
+        systemctl enable pptp-$PROFILE
+    fi
+
+    echo "Profile created successfully."
+}
+
+start_vpn() {
+    pon "$1"
+    sleep 5
+
+    if ip link show | grep -q ppp; then
+        echo "VPN connected successfully."
+        ip addr | grep ppp
+    else
+        echo "VPN connection failed."
+    fi
+}
+
+stop_vpn() {
+    poff "$1" || true
+    echo "VPN disconnected."
+}
+
+restart_vpn() {
+    poff "$1" || true
+    sleep 3
+    pon "$1"
+}
+
+status_vpn() {
+    PPP_IF=$(ip -o link show | awk -F': ' '/ppp/{print $2}' | head -1)
+
+    if [ -n "$PPP_IF" ]; then
+        echo "Status      : CONNECTED"
+        echo "Interface   : $PPP_IF"
+        ip -4 addr show $PPP_IF | grep inet
+        echo ""
+        echo "Routes:"
+        ip route | grep $PPP_IF
+    else
+        echo "Status      : DISCONNECTED"
+    fi
+}
+
+logs_vpn() {
+    journalctl -xe | grep -Ei "ppp|pptp" | tail -50
+}
+
+list_profiles() {
+    echo "Available profiles:"
+    ls /etc/ppp/peers 2>/dev/null || echo "No profiles found."
+}
+
+proxmox_enable() {
+    CTID="$1"
+
+    modprobe ppp_generic || true
+    modprobe ppp_async || true
+    modprobe ppp_mppe || true
+
+    CONF="/etc/pve/lxc/${CTID}.conf"
+
+    grep -q "c 108:0" $CONF || \
+        echo "lxc.cgroup2.devices.allow: c 108:0 rwm" >> $CONF
+
+    grep -q "/dev/ppp" $CONF || \
+        echo "lxc.mount.entry: /dev/ppp dev/ppp none bind,create=file" >> $CONF
+
+    grep -q "features: nesting=1" $CONF || \
+        echo "features: nesting=1" >> $CONF
+
+    echo "Container updated."
+    echo "Run: pct reboot $CTID"
+}
+
+menu() {
+clear
+echo "======================================"
+echo "          PPTP Manager"
+echo "======================================"
+echo "1) Setup VPN"
+echo "2) Start VPN"
+echo "3) Stop VPN"
+echo "4) Restart VPN"
+echo "5) Status"
+echo "6) Logs"
+echo "7) List Profiles"
+echo "8) Exit"
+echo "======================================"
+
+read -p "Select option: " CHOICE
+
+case $CHOICE in
+1) setup_vpn ;;
+2) read -p "Profile: " P; start_vpn $P ;;
+3) read -p "Profile: " P; stop_vpn $P ;;
+4) read -p "Profile: " P; restart_vpn $P ;;
+5) status_vpn ;;
+6) logs_vpn ;;
+7) list_profiles ;;
+8) exit ;;
+esac
+}
+
+require_root
+
+case "$1" in
+setup) setup_vpn ;;
+start) start_vpn "$2" ;;
+stop) stop_vpn "$2" ;;
+restart) restart_vpn "$2" ;;
+status) status_vpn ;;
+logs) logs_vpn ;;
+list) list_profiles ;;
+proxmox)
+    if [ "$2" = "enable" ]; then
+        proxmox_enable "$3"
+    fi
+    ;;
+--version)
+    echo $VERSION
+    ;;
+*)
+    menu
+    ;;
+esac
+`
